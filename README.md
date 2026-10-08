@@ -7,6 +7,7 @@ object-storage download and openEO processing, ready to use with
 ```
 copernicus_status            endpoint/token health check
 copernicus_search_products   OData search (collection, dates, bbox, cloud cover)
+copernicus_search_all        same search, following every OData page
 copernicus_get_product       full metadata for one product
 copernicus_download_product  download an archive to disk
 copernicus_list_product_files  browse inside a SAFE package
@@ -14,17 +15,24 @@ copernicus_product_s3_path   product → object-store key
 copernicus_s3_list           list the eodata bucket
 copernicus_s3_head           object metadata
 copernicus_s3_download       download one object
+copernicus_stac_collections  CCM / CLMS collections
+copernicus_stac_search       STAC item search
 openeo_collections           available collections
 openeo_describe_collection   bands, extents, parameters
+openeo_list_processes        backend processes
+openeo_capabilities          version, plans, formats
 openeo_execute_graph         synchronous processing
 openeo_start_job             asynchronous batch job
 openeo_jobs                  list jobs
 openeo_job_info              status / assets / errors
 openeo_job_logs              job logs
+openeo_wait_job              poll a job until it finishes
 openeo_download_job_result   fetch job outputs
 openeo_ndvi_job              NDVI batch job in one call
 openeo_ndvi_graph            build the NDVI graph without running it
 ```
+
+25 tools in total.
 
 ## Installation
 
@@ -71,6 +79,17 @@ Optional overrides:
 ```bash
 .venv/bin/mcp-copernicus        # stdio
 ```
+
+## Tests
+
+The unit tests mock every HTTP call, so they run without credentials:
+
+```bash
+uv pip install -e . pytest
+.venv/bin/python -m pytest tests/ -q
+```
+
+CI (`.github/workflows/tests.yml`) runs them on every push and pull request.
 
 ## Registering with OpenCode
 

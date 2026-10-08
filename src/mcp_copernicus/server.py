@@ -26,6 +26,7 @@ from .catalogue import (
 from .config import settings
 from .objectstore import ObjectStoreError, download as s3_download, head as s3_head, list_prefix
 from . import openeo_api
+from . import stac as stac_api
 
 mcp = MCPServer(
     name="mcp-copernicus",
@@ -451,6 +452,167 @@ def openeo_ndvi_graph(
         return _ok(**graph)
     except Exception as exc:
         return _fail(exc, "openeo")
+
+
+@mcp.tool(
+    name="openeo_list_processes",
+    description=(
+        "List the openEO processes available on the backend (load_collection, "
+        "ndvi, save_result, ...) with a short summary of each."
+    ),
+)
+def openeo_list_processes(limit: int | None = None) -> dict[str, Any]:
+    try:
+        processes = openeo_api.list_processes(limit=limit)
+        return _ok(count=len(processes), processes=processes)
+    except Exception as exc:
+        return _fail(exc, "openeo")
+
+
+@mcp.tool(
+    name="openeo_capabilities",
+    description=(
+        "Backend capabilities: openEO version, billing plans, endpoints and "
+        "supported file formats."
+    ),
+)
+def openeo_capabilities() -> dict[str, Any]:
+    try:
+        return _ok(**openeo_api.capabilities())
+    except Exception as exc:
+        return _fail(exc, "openeo")
+
+
+@mcp.tool(
+    name="openeo_wait_job",
+    description=(
+        "Block until a batch job finishes, fails or times out, polling every "
+        "poll_interval seconds. Returns the final status and job info; fetch "
+        "the outputs afterwards with openeo_download_job_result."
+    ),
+)
+def openeo_wait_job(
+    job_id: str,
+    poll_interval: float = 10.0,
+    timeout: float = 3600.0,
+) -> dict[str, Any]:
+    try:
+        return _ok(**openeo_api.wait_job(
+            job_id, poll_interval=poll_interval, timeout=timeout
+        ))
+    except Exception as exc:
+        return _fail(exc, "openeo")
+
+
+# ======================================================================
+# 5. STAC (Copernicus Contributing Missions / CLMS)
+# ======================================================================
+@mcp.tool(
+    name="copernicus_stac_collections",
+    description=(
+        "List the STAC collections: Copernicus Contributing Missions (CCM) "
+        "and CLMS products. The main Sentinel collections are in the OData "
+        "catalogue instead."
+    ),
+)
+def copernicus_stac_collections() -> dict[str, Any]:
+    try:
+        collections = stac_api.list_collections()
+        return _ok(count=len(collections), collections=collections)
+    except Exception as exc:
+        return _fail(exc, "stac")
+
+
+@mcp.tool(
+    name="copernicus_stac_search",
+    description=(
+        "Search STAC items by collection, ISO date range and WGS84 bbox. "
+        "Returns item ids, datetimes and asset URLs."
+    ),
+)
+def copernicus_stac_search(
+    collections: list[str],
+    datetime_from: str | None = None,
+    datetime_to: str | None = None,
+    bbox: str | None = None,
+    limit: int = 10,
+    page: int = 1,
+) -> dict[str, Any]:
+    try:
+        result = stac_api.search(
+            collections=collections,
+            datetime_from=datetime_from,
+            datetime_to=datetime_to,
+            bbox=bbox,
+            limit=limit,
+            page=page,
+        )
+        return _ok(**result)
+    except Exception as exc:
+        return _fail(exc, "stac")
+
+
+# ======================================================================
+# 6. pagination helper
+# ======================================================================
+@mcp.tool(
+    name="copernicus_search_all",
+    description=(
+        "Run the same search as copernicus_search_products but follow the "
+        "OData nextLink chain and return every page. Use a small limit per "
+        "page for large result sets."
+    ),
+)
+def copernicus_search_all(
+    collection: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    bbox: str | None = None,
+    wkt: str | None = None,
+    cloud_cover_max: float | None = None,
+    name_contains: str | None = None,
+    extra_filters: list[str] | None = None,
+    page_size: int = 50,
+    max_pages: int = 20,
+    order_by: str = "ContentDate/Start desc",
+    expand_attributes: bool = False,
+) -> dict[str, Any]:
+    from .catalogue import search_products
+
+    all_products: list[dict[str, Any]] = []
+    total: int | None = None
+    offset = 0
+
+    for _ in range(max_pages):
+        page = search_products(
+            collection=collection,
+            date_from=date_from,
+            date_to=date_to,
+            bbox=bbox,
+            wkt=wkt,
+            cloud_cover_max=cloud_cover_max,
+            name_contains=name_contains,
+            extra_filters=extra_filters,
+            limit=page_size,
+            offset=offset,
+            order_by=order_by,
+            with_count=(total is None),
+            expand_attributes=expand_attributes,
+        )
+        if total is None:
+            total = page.get("count")
+        products = page.get("products") or []
+        all_products.extend(products)
+        if len(products) < page_size:
+            break
+        offset += page_size
+
+    return _ok(
+        count=total,
+        returned=len(all_products),
+        pages=(offset // page_size) + 1,
+        products=all_products,
+    )
 
 
 # ======================================================================

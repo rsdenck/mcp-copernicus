@@ -5,6 +5,7 @@ API reference: https://documentation.dataspace.copernicus.eu/APIs/OData.html
 
 from __future__ import annotations
 
+import os
 from typing import Any, Iterable
 from urllib.parse import quote
 
@@ -291,8 +292,6 @@ def download_product(
     the Authorization header is forwarded manually because HTTP clients drop it
     on cross-host redirects.
     """
-    import os
-
     product = get_product(product_id, expand_attributes=False)
     name = filename or str(product.get("Name") or product_id)
     target_dir = dest_dir or settings.download_dir

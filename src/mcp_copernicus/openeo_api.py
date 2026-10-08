@@ -101,8 +101,14 @@ def list_processes(limit: int | None = None) -> list[dict[str, Any]]:
     if limit:
         processes = processes[:limit]
     return [
-        {"name": p.get("name"), "summary": p.get("summary"),
-         "returns": p.get("returns", {}).get("type") if isinstance(p.get("returns"), dict) else None}
+        {
+            "id": p.get("id"),
+            "summary": p.get("summary"),
+            "description": (p.get("description") or "")[:200],
+            "categories": p.get("categories"),
+            "returns": p.get("returns", {}).get("description")
+            if isinstance(p.get("returns"), dict) else None,
+        }
         for p in processes
     ]
 
@@ -253,6 +259,52 @@ def job_logs(job_id: str, level: str | None = None) -> Any:
         raise OpenEOError(f"logs for {job_id}: {exc}") from exc
 
 
+def wait_job(
+    job_id: str,
+    poll_interval: float = 10.0,
+    timeout: float = 3600.0,
+) -> dict[str, Any]:
+    """Poll a batch job until it finishes, fails or times out.
+
+    Returns the final status together with the job description, so the caller
+    can decide whether to fetch the results.
+    """
+    import time
+
+    connection = connect()
+    deadline = time.monotonic() + timeout
+    last_status = ""
+    info: dict[str, Any] = {}
+
+    while True:
+        try:
+            job = connection.job(job_id)
+            last_status = job.status()
+            info = job.describe()
+        except Exception as exc:
+            raise OpenEOError(f"polling job {job_id} failed: {exc}") from exc
+
+        if last_status in ("finished", "error", "canceled"):
+            return {
+                "job_id": job_id,
+                "status": last_status,
+                "finished": last_status == "finished",
+                "elapsed_seconds": round(time.monotonic() - (deadline - timeout), 1),
+                "info": info,
+            }
+
+        if time.monotonic() >= deadline:
+            return {
+                "job_id": job_id,
+                "status": last_status,
+                "finished": False,
+                "timed_out": True,
+                "info": info,
+            }
+
+        time.sleep(poll_interval)
+
+
 def download_job_result(job_id: str, dest_dir: str | None = None) -> dict[str, Any]:
     connection = connect()
     target = dest_dir or os.path.join(settings.download_dir, job_id)
@@ -330,6 +382,12 @@ def capabilities() -> dict[str, Any]:
     connection = connect()
     try:
         caps = connection.capabilities()
-        return caps
+        return {
+            "url": caps.url,
+            "api_version": caps.api_version(),
+            "currency": caps.currency(),
+            "plans": caps.list_plans(),
+            "capabilities": caps.capabilities,
+        }
     except Exception as exc:
         raise OpenEOError(f"capabilities failed: {exc}") from exc
